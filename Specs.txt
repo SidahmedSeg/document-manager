@@ -1,0 +1,1254 @@
+# COMPLETE PROJECT PROMPT: Multi-Tenant Document Manager with Shared Authentication
+
+## 🎯 PROJECT OVERVIEW
+
+Build a production-ready multi-tenant document management system with intelligent OCR, auto-categorization, and federated search. This application integrates with an existing unified authentication system shared across multiple applications (Search Engine and Email App).
+
+**CRITICAL: UNIFIED AUTHENTICATION**
+- Users register and log in through a SHARED authentication system (Search Engine app)
+- This application uses OAuth2/OIDC flow to authenticate users via existing Ory Kratos + Hydra infrastructure
+- NO local authentication UI - all login/registration happens in the Search Engine
+- Tenants are created AUTOMATICALLY on first user access to this application
+- User data is synced from Ory Kratos Admin API
+
+**REFERENCE DOCUMENTATION:**
+Before implementing authentication, carefully review these guides:
+1. `/Users/intelifoxdz/Document Library/ORY_API_SPEC.md` - Ory API specifications
+2. `/Users/intelifoxdz/Document Library/ORY_INTEGRATION_GUIDE.md` - Integration patterns
+3. `/Users/intelifoxdz/Document Library/ORY_QUICK_REFERENCE.md` - Quick reference
+
+## 📋 TECHNOLOGY STACK
+
+**Backend:**
+- Go 1.22+ with Fiber v2 framework
+- gRPC for inter-service communication
+- PostgreSQL 16 (primary database)
+- Redis 7 (caching and sessions)
+- MinIO (S3-compatible object storage)
+- Meilisearch v1.5+ (search engine)
+- PaddleOCR v2.7+ (OCR processing)
+- NATS JetStream 2.10+ (message queue)
+- ClickHouse 23+ (analytics)
+
+**Frontend:**
+- Next.js 14+ (App Router) with TypeScript 5.3+
+- shadcn/ui + Radix UI components
+- TailwindCSS 3.4+
+- TanStack Query v5 (server state)
+- Zustand 4.5+ (client state)
+- React Hook Form + Zod (forms)
+
+**Authentication (Shared Infrastructure):**
+- Ory Kratos v1.2 (Identity Management) - SHARED INSTANCE
+- Ory Hydra v2.2 (OAuth2/OIDC Provider) - SHARED INSTANCE
+- Ory Oathkeeper v0.40 (API Gateway) - OUR INSTANCE
+
+**Infrastructure:**
+- Docker Compose (development)
+- Kubernetes 1.28+ (production)
+- Prometheus + Grafana (monitoring)
+- Helm 3+ (package management)
+
+**ALL PORTS MUST BE 5 DIGITS (10000-65535)**
+
+## 🏗️ PROJECT STRUCTURE
+
+```
+document-manager/
+├── backend/
+│   ├── pkg/                              # Shared packages
+│   │   ├── config/                       # Configuration management
+│   │   ├── database/                     # Database connection pool
+│   │   ├── cache/                        # Redis client
+│   │   ├── logger/                       # Structured logging (Zap)
+│   │   ├── middleware/                   # HTTP middleware
+│   │   ├── validator/                    # Input validation
+│   │   ├── response/                     # Standardized responses
+│   │   ├── errors/                       # Custom error types
+│   │   └── metrics/                      # Prometheus metrics
+│   │
+│   ├── services/
+│   │   ├── tenant-service/               # Port 10001
+│   │   │   ├── cmd/main.go
+│   │   │   ├── internal/
+│   │   │   │   ├── models/
+│   │   │   │   ├── repository/
+│   │   │   │   ├── service/
+│   │   │   │   │   ├── tenant_service.go
+│   │   │   │   │   ├── user_service.go
+│   │   │   │   │   └── kratos_client.go    # Sync from shared Kratos
+│   │   │   │   └── handler/
+│   │   │   └── Dockerfile
+│   │   │
+│   │   ├── document-service/             # Port 10002
+│   │   │   ├── cmd/main.go
+│   │   │   ├── internal/
+│   │   │   │   ├── models/
+│   │   │   │   ├── repository/
+│   │   │   │   ├── service/
+│   │   │   │   └── handler/
+│   │   │   └── Dockerfile
+│   │   │
+│   │   ├── storage-service/              # Port 10003
+│   │   ├── share-service/                # Port 10004
+│   │   ├── rbac-service/                 # Port 10005
+│   │   ├── quota-service/                # Port 10006
+│   │   ├── ocr-service/                  # Port 10007
+│   │   ├── categorization-service/       # Port 10008
+│   │   ├── search-service/               # Port 10009
+│   │   ├── notification-service/         # Port 10010
+│   │   └── audit-service/                # Port 10011
+│   │
+│   └── migrations/                       # Database migrations
+│       ├── 000001_create_extensions_and_types.up.sql
+│       ├── 000001_create_extensions_and_types.down.sql
+│       └── ...
+│
+├── frontend/
+│   ├── user-app/                         # Port 13000 (Next.js)
+│   │   ├── src/
+│   │   │   ├── app/
+│   │   │   │   ├── auth/
+│   │   │   │   │   └── callback/         # OAuth2 callback handler
+│   │   │   │   ├── documents/
+│   │   │   │   ├── shared/
+│   │   │   │   └── settings/
+│   │   │   ├── components/
+│   │   │   ├── lib/
+│   │   │   │   ├── api/                  # API client
+│   │   │   │   ├── auth/                 # OAuth2 client (@ory/client)
+│   │   │   │   └── utils/
+│   │   │   └── hooks/
+│   │   └── package.json
+│   │
+│   └── admin-app/                        # Port 13001 (Next.js)
+│       └── ...
+│
+├── config/
+│   ├── oathkeeper/                       # Our API gateway config
+│   │   ├── oathkeeper.yml
+│   │   └── access-rules.yml
+│   ├── prometheus/
+│   │   ├── prometheus.yml
+│   │   └── rules/
+│   └── grafana/
+│       ├── datasources.yml
+│       └── dashboards/
+│
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── AUTH_INTEGRATION.md               # Shared auth integration guide
+│   ├── API_DOCUMENTATION.md
+│   └── DEPLOYMENT.md
+│
+├── scripts/
+│   ├── init-db.sql
+│   ├── test-shared-auth.sh
+│   └── setup-oauth-client.sh
+│
+├── docker-compose.yml
+├── .env.example
+├── Makefile
+└── README.md
+```
+
+## 🔐 AUTHENTICATION ARCHITECTURE
+
+### Unified Authentication Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  Shared Authentication Layer                     │
+│                                                                  │
+│  ┌──────────────────────┐  ┌──────────────────────┐            │
+│  │   Ory Kratos         │  │   Ory Hydra          │            │
+│  │   (Identity Mgmt)    │  │   (OAuth2/OIDC)      │            │
+│  │   SHARED INSTANCE    │  │   SHARED INSTANCE    │            │
+│  │   :14433/:14434      │  │   :14444/:14445      │            │
+│  └──────────────────────┘  └──────────────────────┘            │
+│           ↑                         ↑                            │
+│           │                         │                            │
+│  ┌────────┴─────────────────────────┴────────┐                 │
+│  │    Primary Authentication UI:              │                 │
+│  │    Search Engine Application               │                 │
+│  │    (Users register/login here)             │                 │
+│  └───────────────────────────────────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘
+                           ↓ (OAuth2 Flow)
+        ┌──────────────────┼──────────────────┐
+        ↓                  ↓                   ↓
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ Search Engine│  │  Email App   │  │  Document    │
+│ (Existing)   │  │  (Existing)  │  │  Manager     │
+│              │  │              │  │  (NEW)       │
+└──────────────┘  └──────────────┘  └──────────────┘
+```
+
+### User Journey
+
+1. **User navigates to Document Manager** (`http://localhost:13000`)
+2. **No session detected** → Redirect to OAuth2 authorization endpoint
+3. **Hydra checks for Kratos session** → If none, redirect to Search Engine login
+4. **User logs in via Search Engine** (or already logged in)
+5. **Hydra prompts for consent** (first time only)
+6. **Authorization code issued** → Redirect to Document Manager callback
+7. **Document Manager exchanges code for JWT** (via Hydra token endpoint)
+8. **First API call** → Tenant Service auto-creates tenant for user
+9. **Subsequent calls** → User has access to their tenant
+
+### Configuration Requirements
+
+**Obtain from Infrastructure Team:**
+- Shared Kratos Public URL (e.g., `http://shared-kratos:14433`)
+- Shared Kratos Admin URL (e.g., `http://shared-kratos:14434`)
+- Shared Hydra Public URL (e.g., `http://shared-hydra:14444`)
+- Shared Hydra Admin URL (e.g., `http://shared-hydra:14445`)
+- OAuth2 Client ID for Document Manager (e.g., `document-manager-client`)
+- OAuth2 Client Secret (secure credential)
+- Allowed redirect URIs (`http://localhost:13000/auth/callback`)
+
+### JWT Token Structure (from Shared Hydra)
+
+```json
+{
+  "sub": "kratos-identity-uuid",
+  "email": "user@example.com",
+  "email_verified": true,
+  "name": "John Doe",
+  "iss": "http://shared-hydra:14444",
+  "aud": ["document-manager-client"],
+  "exp": 1735689600,
+  "iat": 1735686000,
+  "scope": "openid email profile offline_access"
+}
+```
+
+## 🏢 CORE FEATURES
+
+### Document Management
+- Upload (single, multiple, drag-drop, resumable for large files)
+- Nested folders (unlimited depth)
+- Rename, move, copy, delete (soft delete to trash)
+- File preview (PDF, images, text, video)
+- Metadata management
+- Bulk operations
+- Link objects (URL + description)
+
+### OCR & Auto-Categorization
+- Automatic OCR for PDFs and images (PaddleOCR)
+- Multi-page document processing
+- 95%+ accuracy text extraction
+- ML-based classification (Invoice, Contract, Report, etc.)
+- Auto-tagging based on content
+- OCR quota per plan (50/500/5000 pages/month)
+- Real-time usage tracking
+
+### Search
+- Instant federated search (Meilisearch)
+- Keyword + full-text search (OCR content)
+- Typo tolerance
+- Advanced filters (type, category, date, owner, tags)
+- Highlighted results with snippets
+- Autocomplete suggestions
+
+### Sharing
+- Internal sharing (same tenant users)
+- External sharing (email invites)
+- Link sharing with expiration (6h/12h/24h/custom/never)
+- Permission levels (view, download, edit, full)
+- Access tracking and analytics
+
+### Quota Management
+- Storage quota per plan (5GB/100GB/1TB)
+- OCR pages per month limit (50/500/5000)
+- Real-time usage tracking
+- Visual indicators and warnings
+- Block operations at 100%
+- Monthly reports
+
+### Plans
+- **Free**: 5GB, 50 OCR pages/month, 1 user, $0
+- **Pro**: 100GB, 500 OCR pages/month, 10 users, $9.99/month
+- **Enterprise**: 1TB, 5000 OCR pages/month, unlimited users, $49.99/month
+
+## 📦 IMPLEMENTATION PHASES
+
+### PHASE 1: Infrastructure Setup
+
+**1.1 Docker Compose Environment**
+
+Create `docker-compose.yml` with these services:
+
+```yaml
+version: '3.9'
+
+networks:
+  app-network:
+    driver: bridge
+  shared-auth-network:
+    external: true  # Connects to shared Kratos/Hydra network
+
+services:
+  # Our Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: docmanager-postgres
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_DB: docmanager
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: docmanager-redis
+    ports:
+      - "16379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 2gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: docmanager-minio
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # Meilisearch
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: docmanager-meilisearch
+    ports:
+      - "17700:7700"
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_ENV: development
+    volumes:
+      - meilisearch-data:/meili_data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # PaddleOCR Service
+  paddleocr:
+    image: paddlepaddle/paddle:2.5.1
+    container_name: docmanager-paddleocr
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./backend/services/ocr-service/paddle-models:/models
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # NATS JetStream
+  nats:
+    image: nats:2.10-alpine
+    container_name: docmanager-nats
+    ports:
+      - "14222:4222"
+      - "18222:8222"
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ClickHouse
+  clickhouse:
+    image: clickhouse/clickhouse-server:23-alpine
+    container_name: docmanager-clickhouse
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Ory Oathkeeper (Our API Gateway)
+  oathkeeper:
+    image: oryd/oathkeeper:v0.40
+    container_name: docmanager-oathkeeper
+    ports:
+      - "14455:4455"  # Proxy port
+      - "14456:4456"  # API port
+    environment:
+      SHARED_HYDRA_PUBLIC_URL: ${SHARED_HYDRA_PUBLIC_URL}
+      SHARED_KRATOS_PUBLIC_URL: ${SHARED_KRATOS_PUBLIC_URL}
+      OAUTH2_CLIENT_ID: ${OAUTH2_CLIENT_ID}
+    volumes:
+      - ./config/oathkeeper:/etc/config/oathkeeper:ro
+    command: serve --config /etc/config/oathkeeper/oathkeeper.yml
+    networks:
+      - app-network
+      - shared-auth-network  # Connect to shared auth infrastructure
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4456/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: docmanager-prometheus
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./config/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: docmanager-grafana
+    ports:
+      - "13002:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./config/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./config/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./config/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - app-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # MailSlurper (Dev email testing)
+  mailslurper:
+    image: marcopas/docker-mailslurper:latest
+    container_name: docmanager-mailslurper
+    ports:
+      - "14436:4436"  # SMTP
+      - "14437:4437"  # Web UI
+    networks:
+      - app-network
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  meilisearch-data:
+  nats-data:
+  clickhouse-data:
+  prometheus-data:
+  grafana-data:
+```
+
+**1.2 Environment Configuration**
+
+Create `.env.example`:
+
+```bash
+# Database
+DB_PASSWORD=your_secure_password_here
+
+# Redis
+REDIS_PASSWORD=your_redis_password_here
+
+# MinIO
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=your_minio_password_here
+
+# Meilisearch
+MEILI_MASTER_KEY=your_32_character_master_key_here
+
+# Shared Authentication (Obtain from Infrastructure Team)
+SHARED_KRATOS_PUBLIC_URL=http://shared-kratos:14433
+SHARED_KRATOS_ADMIN_URL=http://shared-kratos:14434
+SHARED_HYDRA_PUBLIC_URL=http://shared-hydra:14444
+SHARED_HYDRA_ADMIN_URL=http://shared-hydra:14445
+
+# OAuth2 Client (Registered in Shared Hydra)
+OAUTH2_CLIENT_ID=document-manager-client
+OAUTH2_CLIENT_SECRET=your_client_secret_from_infra_team
+OAUTH2_REDIRECT_URI=http://localhost:13000/auth/callback
+
+# Monitoring
+GRAFANA_ADMIN_PASSWORD=your_grafana_password
+```
+
+**1.3 Database Migrations**
+
+Create all 10 migrations as specified in the blueprint:
+- Extensions and types
+- Tenants and users
+- RBAC
+- Documents
+- Sharing
+- OCR and quota
+- Activity logs
+- Plans and configuration
+- Seed data
+- Triggers
+
+**1.4 Oathkeeper Configuration**
+
+Create `config/oathkeeper/oathkeeper.yml`:
+
+```yaml
+serve:
+  proxy:
+    port: 4455
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:13000
+        - http://localhost:13001
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+      allowed_headers:
+        - Authorization
+        - Content-Type
+      exposed_headers:
+        - Content-Type
+      allow_credentials: true
+  api:
+    port: 4456
+
+access_rules:
+  repositories:
+    - file:///etc/config/oathkeeper/access-rules.yml
+
+log:
+  level: info
+  format: json
+
+authenticators:
+  jwt:
+    enabled: true
+    config:
+      jwks_urls:
+        - ${SHARED_HYDRA_PUBLIC_URL}/.well-known/jwks.json
+      scope_strategy: exact
+      required_scope:
+        - openid
+      target_audience:
+        - ${OAUTH2_CLIENT_ID}
+      token_from:
+        header: Authorization
+        query_parameter: ""
+        cookie: ""
+  noop:
+    enabled: true
+
+authorizers:
+  allow:
+    enabled: true
+  deny:
+    enabled: true
+
+mutators:
+  header:
+    enabled: true
+    config:
+      headers:
+        X-User-ID: "{{ print .Subject }}"
+        X-User-Email: "{{ print .Extra.email }}"
+        X-User-Name: "{{ print .Extra.name }}"
+  noop:
+    enabled: true
+
+errors:
+  fallback:
+    - json
+  handlers:
+    json:
+      enabled: true
+      config:
+        verbose: true
+```
+
+Create `config/oathkeeper/access-rules.yml` with rules for all services.
+
+**1.5 Makefile**
+
+Create comprehensive Makefile with targets:
+- `up`, `down`, `restart`, `ps`, `logs`
+- `db-migrate`, `db-rollback`, `db-reset`
+- `test-shared-auth` (test connectivity to Kratos/Hydra)
+
+### PHASE 2: Backend Services
+
+**2.1 Shared Packages**
+
+Implement all shared packages in `backend/pkg/`:
+- config (Viper)
+- database (pgx pool)
+- cache (Redis client)
+- logger (Zap)
+- middleware (Fiber middleware)
+- validator (go-playground/validator)
+- response (standardized JSON)
+- errors (custom error types)
+- metrics (Prometheus)
+
+**2.2 Tenant Service (Port 10001)**
+
+Key features:
+- **Auto-create tenant on first user access** (main feature)
+- Sync user data from Kratos Admin API
+- Tenant CRUD operations
+- Plan management
+- Quota operations
+- Internal API for other services
+
+Critical function:
+```go
+func (s *TenantService) GetOrCreateTenantForUser(ctx context.Context, userID string) (*Tenant, error) {
+    // 1. Check cache
+    // 2. Query DB for existing tenant
+    // 3. If not found, sync user from Kratos and create tenant
+    // 4. Cache and return
+}
+```
+
+**2.3 Document Service (Port 10002)**
+- Document/folder CRUD
+- Hierarchy management
+- Move/copy operations
+- Trash management
+- Permission checking
+
+**2.4 Storage Service (Port 10003)**
+- MinIO integration
+- File upload (multipart, resumable, pre-signed URLs for >100MB)
+- Deduplication (SHA256 checksum)
+- Virus scanning integration point
+
+**2.5 Quota Service (Port 10006)**
+- Real-time tracking
+- Enforcement (block at 100%)
+- Monthly OCR reset
+
+**2.6 OCR Service (Port 10007)**
+- PaddleOCR integration
+- Quota checking before processing
+- Text extraction and storage
+- Error handling and retry
+
+**2.7 Categorization Service (Port 10008)**
+- ML-based classification
+- Auto-tagging
+- Confidence scoring
+
+**2.8 Search Service (Port 10009)**
+- Meilisearch integration
+- Tenant-scoped indexing
+- Federated search
+- Typo tolerance
+
+**2.9 Share Service (Port 10004)**
+- Internal, external, link sharing
+- Permission management
+- Expiration handling
+
+**2.10 RBAC Service (Port 10005)**
+- Permission checking
+- Role management
+- Custom roles (enterprise)
+
+**2.11 Notification Service (Port 10010)**
+- Email notifications (via SMTP)
+- In-app notifications
+- Preference management
+
+**2.12 Audit Service (Port 10011)**
+- Activity logging
+- ClickHouse integration
+- Compliance reporting
+
+### PHASE 3: Frontend - User App
+
+**3.1 Next.js Setup (Port 13000)**
+
+Initialize Next.js project:
+```bash
+npx create-next-app@latest user-app --typescript --tailwind --app
+cd user-app
+npm install @ory/client axios react-query zustand zod react-hook-form
+npm install @radix-ui/react-* class-variance-authority clsx tailwind-merge
+```
+
+**3.2 OAuth2 Integration**
+
+Create auth client:
+```typescript
+// lib/auth/oauth-client.ts
+import { Configuration, OAuth2Api } from '@ory/client'
+
+export const oauth2Client = new OAuth2Api(
+  new Configuration({
+    basePath: process.env.NEXT_PUBLIC_HYDRA_PUBLIC_URL
+  })
+)
+
+// Redirect to OAuth2 authorization
+export async function redirectToLogin() {
+  const authorizeUrl = new URL(`${process.env.NEXT_PUBLIC_HYDRA_PUBLIC_URL}/oauth2/auth`)
+  authorizeUrl.searchParams.set('client_id', process.env.NEXT_PUBLIC_OAUTH2_CLIENT_ID!)
+  authorizeUrl.searchParams.set('response_type', 'code')
+  authorizeUrl.searchParams.set('redirect_uri', `${window.location.origin}/auth/callback`)
+  authorizeUrl.searchParams.set('scope', 'openid email profile offline_access')
+
+  window.location.href = authorizeUrl.toString()
+}
+
+// Exchange code for token
+export async function exchangeCodeForToken(code: string) {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_HYDRA_PUBLIC_URL}/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: `${window.location.origin}/auth/callback`,
+      client_id: process.env.NEXT_PUBLIC_OAUTH2_CLIENT_ID!,
+      client_secret: process.env.NEXT_PUBLIC_OAUTH2_CLIENT_SECRET!
+    })
+  })
+  return response.json()
+}
+```
+
+**3.3 OAuth2 Callback Handler**
+
+Create `app/auth/callback/page.tsx`:
+```typescript
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { exchangeCodeForToken } from '@/lib/auth/oauth-client'
+
+export default function AuthCallbackPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const code = searchParams.get('code')
+    if (!code) {
+      router.push('/')
+      return
+    }
+
+    exchangeCodeForToken(code).then(data => {
+      // Store JWT in httpOnly cookie (via API route)
+      fetch('/api/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: data.access_token })
+      }).then(() => {
+        router.push('/documents')
+      })
+    }).catch(err => {
+      console.error('Token exchange failed:', err)
+      router.push('/')
+    })
+  }, [])
+
+  return <div>Completing login...</div>
+}
+```
+
+**3.4 Protected Routes Middleware**
+
+Create `middleware.ts`:
+```typescript
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get('access_token')
+
+  // Protected routes
+  if (request.nextUrl.pathname.startsWith('/documents') ||
+      request.nextUrl.pathname.startsWith('/shared') ||
+      request.nextUrl.pathname.startsWith('/settings')) {
+    if (!token) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+  }
+
+  return NextResponse.next()
+}
+```
+
+**3.5 API Client**
+
+Create API client with JWT:
+```typescript
+// lib/api/client.ts
+import axios from 'axios'
+
+export const apiClient = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:14455/api/v1',
+  withCredentials: true
+})
+
+// Add JWT from cookie to all requests
+apiClient.interceptors.request.use(config => {
+  const token = getCookie('access_token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+```
+
+**3.6 Document Management UI**
+
+Implement:
+- Document list (with upload, create folder)
+- Document preview modal
+- Upload zone (drag-drop)
+- Upload progress tracking
+- Folder breadcrumb navigation
+- Search bar with filters
+- Sharing dialog
+- Settings pages
+
+Use shadcn/ui components throughout.
+
+### PHASE 4: Frontend - Admin App (Port 13001)
+
+Similar structure to user app, but with:
+- Tenant management dashboard
+- User management
+- Analytics and reports
+- System configuration
+- Audit log viewer
+
+Admin users require `admin` scope in JWT.
+
+### PHASE 5: Testing & Deployment
+
+**5.1 Testing**
+- Unit tests for all services
+- Integration tests with testcontainers
+- E2E tests with Playwright
+- Load testing with k6
+
+**5.2 Kubernetes Deployment**
+- Create Deployment manifests for all services
+- ConfigMaps for configuration
+- Secrets for sensitive data
+- Services for networking
+- Ingress for external access
+- HPA for auto-scaling
+
+**5.3 Helm Charts**
+- Package all resources
+- Parameterize configuration
+- Document installation
+
+**5.4 CI/CD**
+- GitHub Actions workflows
+- Build and push Docker images
+- Run tests
+- Deploy to staging/production
+
+## 📝 DETAILED IMPLEMENTATION INSTRUCTIONS
+
+### Backend Service Template
+
+Each microservice should follow this structure:
+
+```go
+// cmd/main.go
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "github.com/gofiber/fiber/v2"
+    "document-manager/pkg/config"
+    "document-manager/pkg/database"
+    "document-manager/pkg/cache"
+    "document-manager/pkg/logger"
+    "document-manager/pkg/middleware"
+)
+
+func main() {
+    // Load configuration
+    cfg := config.Load()
+
+    // Initialize logger
+    log := logger.New(cfg.Logging.Level, cfg.Logging.Format)
+    defer log.Sync()
+
+    // Connect to database
+    db, err := database.New(cfg.Database.DSN)
+    if err != nil {
+        log.Fatal("Failed to connect to database", zap.Error(err))
+    }
+    defer db.Close()
+
+    // Connect to Redis
+    redis := cache.New(cfg.Redis.Address, cfg.Redis.Password, cfg.Redis.DB)
+    defer redis.Close()
+
+    // Initialize repositories
+    // Initialize services
+    // Initialize handlers
+
+    // Setup Fiber app
+    app := fiber.New(fiber.Config{
+        ReadTimeout:  30 * time.Second,
+        WriteTimeout: 30 * time.Second,
+    })
+
+    // Apply middleware
+    app.Use(middleware.Logger(log))
+    app.Use(middleware.Recovery(log))
+    app.Use(middleware.Metrics())
+    app.Use(middleware.Auth())
+
+    // Register routes
+    // Health check
+    app.Get("/health", func(c *fiber.Ctx) error {
+        return c.JSON(fiber.Map{"status": "healthy"})
+    })
+
+    // Metrics endpoint
+    app.Get("/metrics", /* Prometheus handler */)
+
+    // Start server
+    go func() {
+        if err := app.Listen(":" + cfg.Server.Port); err != nil {
+            log.Fatal("Server failed", zap.Error(err))
+        }
+    }()
+
+    // Graceful shutdown
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+    <-quit
+
+    log.Info("Shutting down server...")
+    if err := app.ShutdownWithTimeout(30 * time.Second); err != nil {
+        log.Error("Server forced to shutdown", zap.Error(err))
+    }
+}
+```
+
+### Testing Template
+
+```go
+// service_test.go
+package service
+
+import (
+    "context"
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+)
+
+type MockRepository struct {
+    mock.Mock
+}
+
+func (m *MockRepository) Create(ctx context.Context, entity interface{}) error {
+    args := m.Called(ctx, entity)
+    return args.Error(0)
+}
+
+func TestCreateService(t *testing.T) {
+    // Arrange
+    mockRepo := new(MockRepository)
+    service := NewService(mockRepo)
+    ctx := context.Background()
+
+    mockRepo.On("Create", ctx, mock.Anything).Return(nil)
+
+    // Act
+    err := service.Create(ctx, /* params */)
+
+    // Assert
+    assert.NoError(t, err)
+    mockRepo.AssertExpectations(t)
+}
+```
+
+## 🔒 SECURITY BEST PRACTICES
+
+1. **Authentication**
+   - Never implement local auth - use shared Ory infrastructure
+   - Validate JWT signature on every request (Oathkeeper)
+   - Check token expiration
+   - Store tokens in httpOnly cookies
+
+2. **Authorization**
+   - Check tenant membership on every request
+   - Enforce document-level permissions
+   - Validate user roles
+   - Cache permission checks (5 min TTL)
+
+3. **Input Validation**
+   - Validate all input with go-playground/validator
+   - Sanitize user input
+   - Check file types and sizes
+   - Scan uploads for viruses
+
+4. **Data Protection**
+   - Use parameterized queries (prevent SQL injection)
+   - Encrypt sensitive data at rest
+   - Use TLS for all connections
+   - Never log sensitive data
+
+5. **Rate Limiting**
+   - Implement per-tenant rate limits
+   - Protect against DoS
+   - Monitor for abuse
+
+## 📊 MONITORING & OBSERVABILITY
+
+**Prometheus Metrics:**
+- HTTP request count, duration, errors
+- Database connection pool stats
+- Cache hit/miss rates
+- Storage usage per tenant
+- OCR processing time
+- Business metrics (uploads, OCR pages, searches)
+
+**Grafana Dashboards:**
+- System metrics (CPU, memory, disk)
+- Service health
+- Business metrics
+- User activity
+- Error rates
+
+**Logging:**
+- Structured logs (JSON)
+- Include context (request ID, user ID, tenant ID)
+- Aggregate in Loki or ELK
+
+**Alerts:**
+- Service down
+- High error rate
+- High latency
+- Quota exceeded
+- Failed OCR processing
+
+## 🚀 DEPLOYMENT CHECKLIST
+
+### Pre-Deployment
+- [ ] All tests passing
+- [ ] Code reviewed
+- [ ] Security scan passed
+- [ ] Documentation updated
+- [ ] OAuth2 client registered in shared Hydra
+- [ ] Credentials obtained from infrastructure team
+
+### Configuration
+- [ ] Environment variables set
+- [ ] Database migrations ready
+- [ ] Monitoring configured
+- [ ] Backup strategy in place
+- [ ] SSL certificates installed
+
+### Deployment
+- [ ] Deploy infrastructure (DB, Redis, MinIO, etc.)
+- [ ] Run database migrations
+- [ ] Deploy backend services
+- [ ] Deploy frontend apps
+- [ ] Configure Oathkeeper
+- [ ] Test OAuth2 flow end-to-end
+- [ ] Verify tenant auto-creation
+- [ ] Monitor logs and metrics
+
+### Post-Deployment
+- [ ] Smoke tests passed
+- [ ] Performance tests passed
+- [ ] Security audit completed
+- [ ] Documentation published
+- [ ] Team trained
+
+## 🎯 SUCCESS CRITERIA
+
+**Functional:**
+- ✅ Users can log in via shared authentication
+- ✅ Tenants created automatically on first access
+- ✅ Documents can be uploaded, organized, shared
+- ✅ OCR extracts text with 95%+ accuracy
+- ✅ Search returns relevant results in <200ms
+- ✅ Quotas enforced per plan
+
+**Performance:**
+- ✅ API response time <100ms (p95)
+- ✅ Upload throughput: 100+ concurrent
+- ✅ Search latency: <200ms
+- ✅ OCR processing: <2s per page (CPU)
+
+**Security:**
+- ✅ All requests authenticated via JWT
+- ✅ Tenant data completely isolated
+- ✅ No SQL injection vulnerabilities
+- ✅ No XSS vulnerabilities
+- ✅ Rate limiting active
+
+**Reliability:**
+- ✅ 99.9% uptime
+- ✅ Graceful error handling
+- ✅ Database backups automated
+- ✅ Disaster recovery tested
+
+## 📚 ADDITIONAL RESOURCES
+
+**Must Review Before Implementation:**
+1. `/Users/intelifoxdz/Document Library/ORY_API_SPEC.md`
+2. `/Users/intelifoxdz/Document Library/ORY_INTEGRATION_GUIDE.md`
+3. `/Users/intelifoxdz/Document Library/ORY_QUICK_REFERENCE.md`
+
+**External Documentation:**
+- Ory Docs: https://www.ory.sh/docs
+- Next.js: https://nextjs.org/docs
+- Fiber: https://docs.gofiber.io
+- Meilisearch: https://docs.meilisearch.com
+
+## 🏁 GETTING STARTED
+
+1. **Clone repository and setup environment:**
+   ```bash
+   git clone <repo-url>
+   cd document-manager
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+2. **Obtain OAuth2 credentials from infrastructure team**
+
+3. **Start infrastructure:**
+   ```bash
+   make up
+   ```
+
+4. **Run database migrations:**
+   ```bash
+   make db-migrate
+   ```
+
+5. **Test shared auth connectivity:**
+   ```bash
+   make test-shared-auth
+   ```
+
+6. **Build and start services:**
+   ```bash
+   # Backend services
+   cd backend/services/tenant-service && go run cmd/main.go
+   # Repeat for other services
+
+   # Frontend
+   cd frontend/user-app && npm run dev
+   ```
+
+7. **Access applications:**
+   - User App: http://localhost:13000
+   - Admin App: http://localhost:13001
+   - Grafana: http://localhost:13002
+
+## 🤝 SUPPORT
+
+For issues related to:
+- **Shared Authentication**: Contact infrastructure team
+- **Application Features**: Create GitHub issue
+- **Deployment**: Refer to DEPLOYMENT.md
+
+---
+
+**IMPORTANT REMINDERS:**
+
+🔴 **NEVER** implement local authentication - always use shared Ory infrastructure
+🟡 **ALWAYS** validate JWT tokens via Oathkeeper
+🟢 **TENANT AUTO-CREATION** is the core feature - implement carefully
+🔵 **ALL PORTS** must be 5 digits (10000-65535)
+🟣 **REVIEW ORY GUIDES** before implementing authentication
+
+This is a comprehensive enterprise-grade application. Take time to understand
+each component before implementation. Follow the phased approach and don't
+skip testing.
+
+Good luck! 🚀

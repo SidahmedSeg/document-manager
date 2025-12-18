@@ -1,0 +1,303 @@
+# =============================================================================
+# DOCUMENT MANAGER - .gitignore
+# =============================================================================
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# =============================================================================
+# BACKEND (Go)
+# =============================================================================
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Go test files
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+
+# Vendor
+vendor/
+
+# Dependency directories
+backend/*/vendor/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+.DS_Store
+
+# =============================================================================
+# FRONTEND (Next.js / Node.js)
+# =============================================================================
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Next.js
+frontend/*/.next/
+frontend/*/out/
+frontend/*/.vercel
+.next/
+out/
+build/
+
+# Production
+dist/
+build/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.DS_Store
+*.pem
+.env*.local
+
+# =============================================================================
+# DOCKER & INFRASTRUCTURE
+# =============================================================================
+
+# Docker volumes (keep empty folders, ignore data)
+**/postgres-data/*
+!**/postgres-data/.gitkeep
+**/redis-data/*
+!**/redis-data/.gitkeep
+**/minio-data/*
+!**/minio-data/.gitkeep
+**/meilisearch-data/*
+!**/meilisearch-data/.gitkeep
+**/nats-data/*
+!**/nats-data/.gitkeep
+**/clickhouse-data/*
+!**/clickhouse-data/.gitkeep
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# =============================================================================
+# BACKUPS & TEMP FILES
+# =============================================================================
+
+# Backups
+backups/
+*.backup
+*.sql
+*.sql.gz
+*.dump
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+.cache/
+
+# =============================================================================
+# OS SPECIFIC
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# CERTIFICATES & SECRETS
+# =============================================================================
+
+# SSL Certificates
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+certs/
+certificates/
+
+# Secret files
+secrets/
+*.secret
+credentials.json
+service-account.json
+
+# =============================================================================
+# BUILD ARTIFACTS
+# =============================================================================
+
+# Go binaries
+backend/services/*/main
+backend/services/*/cmd/main
+backend/services/*/*.exe
+
+# Frontend builds
+frontend/user-app/.next/
+frontend/admin-app/.next/
+frontend/user-app/out/
+frontend/admin-app/out/
+
+# =============================================================================
+# KUBERNETES & DEPLOYMENT
+# =============================================================================
+
+# Helm
+*.tgz
+charts/*/charts/
+charts/*/tmpcharts/
+
+# Kubernetes secrets
+k8s/secrets/*.yaml
+k8s/overlays/*/secrets/*.yaml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# =============================================================================
+# TESTING
+# =============================================================================
+
+# Test coverage
+*.coverprofile
+coverage/
+
+# E2E test artifacts
+playwright-report/
+test-results/
+screenshots/
+videos/
+
+# Load testing
+k6-results/
+
+# =============================================================================
+# LOGS
+# =============================================================================
+
+# Application logs
+logs/
+*.log
+log/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =============================================================================
+# EDITORS
+# =============================================================================
+
+# JetBrains IDEs
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# Vim
+*.swp
+*.swo
+*~
+.*.sw?
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# =============================================================================
+# MISCELLANEOUS
+# =============================================================================
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+site/
+
+# Package files
+*.tar.gz
+*.zip
+*.rar
+
+# Local configuration
+local.yaml
+local.json
+
+# Debug files
+debug/
+debug.log
+
+# Git patches
+*.patch
+*.diff
+
+# =============================================================================
+# KEEP FILES
+# =============================================================================
+# Use .gitkeep files to preserve empty directories
+
+# Allow example env file
+!.env.example
+
+# Allow migration files
+!backend/migrations/*.sql
+
+# Allow configuration examples
+!config/**/*.example.*
+!config/**/*.sample.*

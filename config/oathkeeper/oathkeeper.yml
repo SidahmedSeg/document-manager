@@ -1,0 +1,252 @@
+version: v0.40.0
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+serve:
+  proxy:
+    port: 4455
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:13000
+        - http://localhost:13001
+        - https://docs.yourdomain.com
+        - https://admin.yourdomain.com
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+        - X-Requested-With
+        - Accept
+        - Origin
+      exposed_headers:
+        - Content-Type
+        - X-Request-ID
+        - X-User-ID
+        - X-User-Email
+      allow_credentials: true
+      max_age: 86400
+      debug: false
+
+  api:
+    port: 4456
+    cors:
+      enabled: true
+      allowed_origins:
+        - http://localhost:13000
+        - http://localhost:13001
+      allowed_methods:
+        - GET
+      allowed_headers:
+        - Authorization
+
+# =============================================================================
+# ACCESS RULES
+# =============================================================================
+access_rules:
+  matching_strategy: regexp
+  repositories:
+    - file:///etc/config/oathkeeper/access-rules.yml
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+log:
+  level: info
+  format: json
+  leak_sensitive_values: false
+
+# =============================================================================
+# ERROR HANDLING
+# =============================================================================
+errors:
+  fallback:
+    - json
+  handlers:
+    redirect:
+      enabled: true
+      config:
+        to: http://localhost:13000/auth/login
+        when:
+          - error:
+              - unauthorized
+              - forbidden
+            request:
+              header:
+                accept:
+                  - text/html
+    json:
+      enabled: true
+      config:
+        verbose: false
+
+# =============================================================================
+# MUTATORS (Header Injection)
+# =============================================================================
+mutators:
+  noop:
+    enabled: true
+
+  header:
+    enabled: true
+    config:
+      headers:
+        X-User-ID: "{{ print .Subject }}"
+        X-User-Email: "{{ print .Extra.email }}"
+        X-User-Name: "{{ print .Extra.name }}"
+        X-Email-Verified: "{{ print .Extra.email_verified }}"
+
+  hydrator:
+    enabled: true
+    config:
+      api:
+        url: http://tenant-service:10001/internal/hydrate
+        auth:
+          basic:
+            username: oathkeeper
+            password: ${INTERNAL_API_SECRET}
+
+  id_token:
+    enabled: true
+    config:
+      issuer_url: ${SHARED_HYDRA_PUBLIC_URL}
+      jwks_url: ${SHARED_HYDRA_PUBLIC_URL}/.well-known/jwks.json
+      claims: |
+        {
+          "{{ print .Subject }}": "{{ print .Extra }}"
+        }
+
+# =============================================================================
+# AUTHORIZERS
+# =============================================================================
+authorizers:
+  allow:
+    enabled: true
+
+  deny:
+    enabled: true
+
+  remote:
+    enabled: true
+
+  remote_json:
+    enabled: true
+    config:
+      remote: http://rbac-service:10005/api/v1/check
+      forward_response_headers_to_upstream:
+        - X-Tenant-ID
+        - X-User-Roles
+        - X-Permission-Level
+      headers:
+        Content-Type: application/json
+      retry:
+        give_up_after: 3s
+        max_delay: 100ms
+
+  keto_engine_acp_ory:
+    enabled: false
+
+# =============================================================================
+# AUTHENTICATORS
+# =============================================================================
+authenticators:
+  noop:
+    enabled: true
+
+  anonymous:
+    enabled: true
+    config:
+      subject: guest
+
+  cookie_session:
+    enabled: true
+    config:
+      check_session_url: ${SHARED_KRATOS_PUBLIC_URL}/sessions/whoami
+      preserve_path: true
+      extra_from: "@this"
+      subject_from: "identity.id"
+      only:
+        - ory_kratos_session
+      forward_http_headers:
+        - Cookie
+
+  oauth2_introspection:
+    enabled: true
+    config:
+      introspection_url: ${SHARED_HYDRA_ADMIN_URL}/oauth2/introspect
+      scope_strategy: exact
+      pre_authorization:
+        enabled: true
+        client_id: ${OAUTH2_CLIENT_ID}
+        client_secret: ${OAUTH2_CLIENT_SECRET}
+        scope:
+          - openid
+      token_from:
+        header: Authorization
+        query_parameter: access_token
+        cookie: ""
+      cache:
+        enabled: true
+        ttl: 60s
+      retry:
+        give_up_after: 3s
+        max_delay: 100ms
+
+  jwt:
+    enabled: true
+    config:
+      jwks_urls:
+        - ${SHARED_HYDRA_PUBLIC_URL}/.well-known/jwks.json
+      scope_strategy: exact
+      required_scope:
+        - openid
+      target_audience:
+        - ${OAUTH2_CLIENT_ID}
+      trusted_issuers:
+        - ${SHARED_HYDRA_PUBLIC_URL}
+      allowed_algorithms:
+        - RS256
+        - RS384
+        - RS512
+      token_from:
+        header: Authorization
+        query_parameter: token
+        cookie: ory_hydra_session
+      claims: |
+        {
+          "email": "{{ print .Extra.email }}",
+          "email_verified": {{ print .Extra.email_verified }},
+          "name": "{{ print .Extra.name }}"
+        }
+      jwks_max_wait: 1s
+      jwks_ttl: 30s
+
+  bearer_token:
+    enabled: false
+
+  oauth2_client_credentials:
+    enabled: false
+
+# =============================================================================
+# PROFILING (Disable in production)
+# =============================================================================
+profiling: disabled
+
+# =============================================================================
+# TRACING (Future integration)
+# =============================================================================
+tracing:
+  provider: ""
+  service_name: oathkeeper
+  providers:
+    jaeger:
+      local_agent_address: jaeger:6831
+      sampling:
+        server_url: http://jaeger:5778/sampling

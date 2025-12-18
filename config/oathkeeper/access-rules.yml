@@ -1,0 +1,1101 @@
+# =============================================================================
+# OATHKEEPER ACCESS RULES
+# Document Manager - Production Configuration
+# =============================================================================
+# This file defines all routing rules for the Document Manager application.
+# Routes are matched using regex patterns and can have different authentication
+# and authorization requirements.
+#
+# Rule Components:
+# - id: Unique identifier for the rule
+# - upstream: Backend service to forward requests to
+# - match: URL pattern and HTTP methods
+# - authenticators: How to validate the request (JWT, cookie, anonymous)
+# - authorizer: Who can access (allow, deny, remote_json)
+# - mutators: What to inject into the request (headers, hydration)
+# - errors: How to handle errors
+# =============================================================================
+
+# =============================================================================
+# PUBLIC ROUTES (No Authentication Required)
+# =============================================================================
+
+# Health checks for all services
+- id: "health-checks"
+  upstream:
+    url: "http://host.docker.internal"
+    strip_path: /.well-known/health
+  match:
+    url: "http://<.*>/health"
+    methods:
+      - GET
+  authenticators:
+    - handler: anonymous
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: noop
+  errors:
+    - handler: json
+
+# Oathkeeper health check
+- id: "oathkeeper-health"
+  upstream:
+    url: "http://localhost:4456"
+  match:
+    url: "http://<.*>/.well-known/health<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: anonymous
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: noop
+
+# OAuth2 callback (public)
+- id: "oauth-callback"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/auth/callback<.*>"
+    methods:
+      - GET
+      - POST
+  authenticators:
+    - handler: noop
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: noop
+  errors:
+    - handler: json
+
+# =============================================================================
+# TENANT SERVICE - Port 10001
+# =============================================================================
+
+# Get or create tenant for current authenticated user
+- id: "tenant-current"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/current<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get tenant by ID
+- id: "tenant-get"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/<[0-9a-f-]{36}><.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+    - handler: hydrator
+  errors:
+    - handler: json
+
+# Update tenant
+- id: "tenant-update"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/<[0-9a-f-]{36}>"
+    methods:
+      - PUT
+      - PATCH
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# List tenant users
+- id: "tenant-users-list"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/<[0-9a-f-]{36}>/users<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Add user to tenant
+- id: "tenant-users-add"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/<[0-9a-f-]{36}>/users"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Remove user from tenant
+- id: "tenant-users-remove"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/<[0-9a-f-]{36}>/users/<[0-9a-f-]{36}>"
+    methods:
+      - DELETE
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Upgrade/downgrade plan
+- id: "tenant-plan"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/tenants/<[0-9a-f-]{36}>/plan"
+    methods:
+      - PUT
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# DOCUMENT SERVICE - Port 10002
+# =============================================================================
+
+# List documents
+- id: "documents-list"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents<\\?.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Create document/folder
+- id: "documents-create"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get document by ID
+- id: "documents-get"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Update document
+- id: "documents-update"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>"
+    methods:
+      - PUT
+      - PATCH
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Delete document (move to trash)
+- id: "documents-delete"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>"
+    methods:
+      - DELETE
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Move document
+- id: "documents-move"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/move"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Copy document
+- id: "documents-copy"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/copy"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# List document children
+- id: "documents-children"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/children<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# List trash
+- id: "documents-trash-list"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/trash<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Restore from trash
+- id: "documents-restore"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/restore"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Permanent delete
+- id: "documents-permanent-delete"
+  upstream:
+    url: "http://document-service:10002"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/permanent"
+    methods:
+      - DELETE
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# STORAGE SERVICE - Port 10003
+# =============================================================================
+
+# Initialize upload
+- id: "storage-upload-init"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/upload/init"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Complete upload
+- id: "storage-upload-complete"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/upload/complete"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get upload progress
+- id: "storage-upload-progress"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/upload/<[0-9a-f-]{36}>/progress"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Download file
+- id: "storage-download"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/download/<[0-9a-f-]{36}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Preview file
+- id: "storage-preview"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/preview/<[0-9a-f-]{36}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get thumbnail
+- id: "storage-thumbnail"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/thumbnail/<[0-9a-f-]{36}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Delete file
+- id: "storage-delete"
+  upstream:
+    url: "http://storage-service:10003"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/storage/<[0-9a-f-]{36}>"
+    methods:
+      - DELETE
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# SHARE SERVICE - Port 10004
+# =============================================================================
+
+# List shares for document
+- id: "shares-list"
+  upstream:
+    url: "http://share-service:10004"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/shares<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Create share
+- id: "shares-create"
+  upstream:
+    url: "http://share-service:10004"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/documents/<[0-9a-f-]{36}>/shares"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get share details
+- id: "shares-get"
+  upstream:
+    url: "http://share-service:10004"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/shares/<[0-9a-f-]{36}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Update share
+- id: "shares-update"
+  upstream:
+    url: "http://share-service:10004"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/shares/<[0-9a-f-]{36}>"
+    methods:
+      - PUT
+      - PATCH
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Delete share (revoke access)
+- id: "shares-delete"
+  upstream:
+    url: "http://share-service:10004"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/shares/<[0-9a-f-]{36}>"
+    methods:
+      - DELETE
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: remote_json
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Access shared document via public link (NO AUTHENTICATION)
+- id: "shares-public-access"
+  upstream:
+    url: "http://share-service:10004"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/shares/public/<[a-zA-Z0-9_-]{32,}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: anonymous
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: noop
+  errors:
+    - handler: json
+
+# =============================================================================
+# RBAC SERVICE - Port 10005
+# =============================================================================
+
+# Check permission (used by other services, not directly by frontend)
+- id: "rbac-check"
+  upstream:
+    url: "http://rbac-service:10005"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/rbac/check"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# List user permissions
+- id: "rbac-permissions-list"
+  upstream:
+    url: "http://rbac-service:10005"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/rbac/permissions<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# List roles
+- id: "rbac-roles-list"
+  upstream:
+    url: "http://rbac-service:10005"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/rbac/roles<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# QUOTA SERVICE - Port 10006
+# =============================================================================
+
+# Get quota usage for current user
+- id: "quota-usage"
+  upstream:
+    url: "http://quota-service:10006"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/quota<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get quota details
+- id: "quota-details"
+  upstream:
+    url: "http://quota-service:10006"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/quota/details<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# SEARCH SERVICE - Port 10009
+# =============================================================================
+
+# Search documents
+- id: "search-documents"
+  upstream:
+    url: "http://search-service:10009"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/search<.*>"
+    methods:
+      - GET
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Autocomplete suggestions
+- id: "search-autocomplete"
+  upstream:
+    url: "http://search-service:10009"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/search/autocomplete<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Advanced search with filters
+- id: "search-advanced"
+  upstream:
+    url: "http://search-service:10009"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/search/advanced"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# NOTIFICATION SERVICE - Port 10010
+# =============================================================================
+
+# Get user notifications
+- id: "notifications-list"
+  upstream:
+    url: "http://notification-service:10010"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/notifications<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Mark notification as read
+- id: "notifications-mark-read"
+  upstream:
+    url: "http://notification-service:10010"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/notifications/<[0-9a-f-]{36}>/read"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Mark all notifications as read
+- id: "notifications-mark-all-read"
+  upstream:
+    url: "http://notification-service:10010"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/notifications/read-all"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get notification preferences
+- id: "notifications-preferences-get"
+  upstream:
+    url: "http://notification-service:10010"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/notifications/preferences"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Update notification preferences
+- id: "notifications-preferences-update"
+  upstream:
+    url: "http://notification-service:10010"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/notifications/preferences"
+    methods:
+      - PUT
+  authenticators:
+    - handler: jwt
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# AUDIT SERVICE - Port 10011
+# =============================================================================
+
+# Get audit logs (admin only)
+- id: "audit-logs"
+  upstream:
+    url: "http://audit-service:10011"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/audit/logs<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Export audit logs (admin only)
+- id: "audit-export"
+  upstream:
+    url: "http://audit-service:10011"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/audit/export<.*>"
+    methods:
+      - POST
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get audit statistics (admin only)
+- id: "audit-stats"
+  upstream:
+    url: "http://audit-service:10011"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/audit/stats<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# =============================================================================
+# ADMIN ROUTES (Require 'admin' scope)
+# =============================================================================
+
+# List all tenants (admin)
+- id: "admin-tenants-list"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/admin/tenants<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Get tenant details (admin)
+- id: "admin-tenant-get"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/admin/tenants/<[0-9a-f-]{36}>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Update any tenant (admin)
+- id: "admin-tenant-update"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/admin/tenants/<[0-9a-f-]{36}>"
+    methods:
+      - PUT
+      - PATCH
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# Delete tenant (admin)
+- id: "admin-tenant-delete"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/admin/tenants/<[0-9a-f-]{36}>"
+    methods:
+      - DELETE
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# System analytics (admin)
+- id: "admin-analytics"
+  upstream:
+    url: "http://audit-service:10011"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/admin/analytics<.*>"
+    methods:
+      - GET
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json
+
+# System configuration (admin)
+- id: "admin-config"
+  upstream:
+    url: "http://tenant-service:10001"
+    preserve_host: true
+  match:
+    url: "http://<.*>/api/v1/admin/config<.*>"
+    methods:
+      - GET
+      - PUT
+  authenticators:
+    - handler: jwt
+      config:
+        required_scope:
+          - admin
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+  errors:
+    - handler: json

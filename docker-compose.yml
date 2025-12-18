@@ -1,0 +1,558 @@
+version: '3.9'
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+  # External network for shared Kratos/Hydra infrastructure
+  # Create this network first: docker network create shared-auth-network
+  shared-auth-network:
+    external: true
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  minio-data:
+    driver: local
+  meilisearch-data:
+    driver: local
+  nats-data:
+    driver: local
+  clickhouse-data:
+    driver: local
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+
+  # ===========================================================================
+  # ORY OATHKEEPER - API GATEWAY
+  # ===========================================================================
+  oathkeeper:
+    image: oryd/oathkeeper:v0.40
+    container_name: docmanager-oathkeeper
+    ports:
+      - "14455:4455"  # Proxy port (frontend calls this)
+      - "14456:4456"  # API port (health checks, metrics)
+    environment:
+      # Shared authentication URLs
+      - SHARED_HYDRA_PUBLIC_URL=${SHARED_HYDRA_PUBLIC_URL}
+      - SHARED_HYDRA_ADMIN_URL=${SHARED_HYDRA_ADMIN_URL}
+      - SHARED_KRATOS_PUBLIC_URL=${SHARED_KRATOS_PUBLIC_URL}
+      - OAUTH2_CLIENT_ID=${OAUTH2_CLIENT_ID}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - LOG_LEVEL=${OATHKEEPER_LOG_LEVEL:-info}
+    volumes:
+      - ./config/oathkeeper:/etc/config/oathkeeper:ro
+    command: serve --config /etc/config/oathkeeper/oathkeeper-test.yml
+    networks:
+      - app-network
+      - shared-auth-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4456/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # POSTGRESQL - PRIMARY DATABASE
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: docmanager-postgres
+    ports:
+      - "15432:5432"
+    environment:
+      - POSTGRES_DB=${DB_NAME:-docmanager}
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-docmanager}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=1MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "log_timezone=UTC"
+      - "-c"
+      - "timezone=UTC"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # REDIS - CACHE & SESSION STORE
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: docmanager-redis
+    ports:
+      - "16379:6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # MINIO - S3-COMPATIBLE OBJECT STORAGE
+  # ===========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: docmanager-minio
+    ports:
+      - "19000:9000"  # API
+      - "19001:9001"  # Console
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BROWSER=on
+      - MINIO_DOMAIN=localhost
+      - MINIO_SERVER_URL=http://localhost:19000
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:19001
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # MinIO Client for bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    container_name: docmanager-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb --ignore-existing minio/documents;
+      /usr/bin/mc mb --ignore-existing minio/thumbnails;
+      /usr/bin/mc mb --ignore-existing minio/temp;
+      /usr/bin/mc policy set download minio/thumbnails;
+      echo 'MinIO buckets initialized successfully';
+      exit 0;
+      "
+
+  # ===========================================================================
+  # MEILISEARCH - SEARCH ENGINE
+  # ===========================================================================
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: docmanager-meilisearch
+    ports:
+      - "17700:7700"
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_ENV=${MEILI_ENV:-development}
+      - MEILI_DB_PATH=/meili_data/data.ms
+      - MEILI_HTTP_ADDR=0.0.0.0:7700
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_LOG_LEVEL=INFO
+    volumes:
+      - meilisearch-data:/meili_data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # PADDLEOCR - OCR PROCESSING ENGINE (PLACEHOLDER)
+  # ===========================================================================
+  # Note: This is a placeholder. The actual OCR service will be built in Phase 4
+  paddleocr:
+    image: nginx:alpine
+    container_name: docmanager-paddleocr
+    ports:
+      - "18080:80"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # NATS JETSTREAM - MESSAGE QUEUE
+  # ===========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: docmanager-nats
+    ports:
+      - "14222:4222"  # Client connections
+      - "18222:8222"  # HTTP monitoring
+    command:
+      - "-js"                          # Enable JetStream
+      - "-m"
+      - "8222"                         # Monitoring port
+      - "--store_dir=/data"            # JetStream storage
+    volumes:
+      - nats-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # CLICKHOUSE - ANALYTICS DATABASE
+  # ===========================================================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:23-alpine
+    container_name: docmanager-clickhouse
+    ports:
+      - "18123:8123"  # HTTP interface
+      - "19009:9000"  # Native protocol
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-docmanager}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./config/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+      - ./config/clickhouse/users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+      - ./scripts/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ===========================================================================
+  # MAILSLURPER - EMAIL TESTING (DEVELOPMENT ONLY)
+  # ===========================================================================
+  mailslurper:
+    image: marcopas/docker-mailslurper:latest
+    container_name: docmanager-mailslurper
+    ports:
+      - "14436:4436"  # SMTP server
+      - "14437:4437"  # Web UI
+      - "14438:8080"  # API
+      - "14439:8085"  # Service
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4437"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    profiles:
+      - development
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# =============================================================================
+# BACKEND SERVICES (Add these as you build them)
+# =============================================================================
+# Uncomment and configure as you implement each service
+
+  # tenant-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/tenant-service/Dockerfile
+  #   container_name: docmanager-tenant-service
+  #   ports:
+  #     - "10001:10001"
+  #   environment:
+  #     - DB_HOST=postgres
+  #     - DB_PORT=5432
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     oathkeeper:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  # document-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/document-service/Dockerfile
+  #   container_name: docmanager-document-service
+  #   ports:
+  #     - "10002:10002"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   restart: unless-stopped
+
+  # storage-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/storage-service/Dockerfile
+  #   container_name: docmanager-storage-service
+  #   ports:
+  #     - "10003:10003"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - minio
+  #     - nats
+  #   restart: unless-stopped
+
+  # share-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/share-service/Dockerfile
+  #   container_name: docmanager-share-service
+  #   ports:
+  #     - "10004:10004"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   restart: unless-stopped
+
+  # rbac-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/rbac-service/Dockerfile
+  #   container_name: docmanager-rbac-service
+  #   ports:
+  #     - "10005:10005"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   restart: unless-stopped
+
+  # quota-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/quota-service/Dockerfile
+  #   container_name: docmanager-quota-service
+  #   ports:
+  #     - "10006:10006"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   restart: unless-stopped
+
+  # ocr-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/ocr-service/Dockerfile
+  #   container_name: docmanager-ocr-service
+  #   ports:
+  #     - "10007:10007"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - paddleocr
+  #     - nats
+  #   restart: unless-stopped
+
+  # categorization-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/categorization-service/Dockerfile
+  #   container_name: docmanager-categorization-service
+  #   ports:
+  #     - "10008:10008"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - postgres
+  #     - nats
+  #   restart: unless-stopped
+
+  # search-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/search-service/Dockerfile
+  #   container_name: docmanager-search-service
+  #   ports:
+  #     - "10009:10009"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - meilisearch
+  #     - nats
+  #   restart: unless-stopped
+
+  # notification-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/notification-service/Dockerfile
+  #   container_name: docmanager-notification-service
+  #   ports:
+  #     - "10010:10010"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - postgres
+  #     - nats
+  #   restart: unless-stopped
+
+  # audit-service:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: services/audit-service/Dockerfile
+  #   container_name: docmanager-audit-service
+  #   ports:
+  #     - "10011:10011"
+  #   networks:
+  #     - app-network
+  #   depends_on:
+  #     - clickhouse
+  #     - nats
+  #   restart: unless-stopped

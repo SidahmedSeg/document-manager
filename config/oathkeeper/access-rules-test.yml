@@ -1,0 +1,30 @@
+# Simplified access rules for infrastructure testing
+
+- id: "health-check"
+  upstream:
+    url: "http://localhost:4456"
+  match:
+    url: "http://<.*>/health"
+    methods:
+      - GET
+  authenticators:
+    - handler: anonymous
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: noop
+
+- id: "test-route"
+  upstream:
+    url: "http://localhost:4456"
+  match:
+    url: "http://<.*>/.*"
+    methods:
+      - GET
+      - POST
+  authenticators:
+    - handler: anonymous
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header

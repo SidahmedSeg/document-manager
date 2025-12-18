@@ -1,0 +1,68 @@
+# Simplified Oathkeeper configuration for infrastructure testing
+version: v0.40.0
+
+serve:
+  proxy:
+    port: 4455
+    cors:
+      enabled: true
+      allowed_origins:
+        - "*"
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - HEAD
+      allowed_headers:
+        - "*"
+      allow_credentials: true
+
+  api:
+    port: 4456
+
+log:
+  level: info
+  format: json
+
+access_rules:
+  matching_strategy: regexp
+  repositories:
+    - file:///etc/config/oathkeeper/access-rules-test.yml
+
+errors:
+  fallback:
+    - json
+  handlers:
+    json:
+      enabled: true
+      config:
+        verbose: true
+
+mutators:
+  noop:
+    enabled: true
+
+  header:
+    enabled: true
+    config:
+      headers:
+        X-User-ID: "test-user-123"
+        X-User-Email: "test@example.com"
+
+authorizers:
+  allow:
+    enabled: true
+
+  deny:
+    enabled: true
+
+authenticators:
+  noop:
+    enabled: true
+
+  anonymous:
+    enabled: true
+    config:
+      subject: guest
