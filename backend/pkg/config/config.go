@@ -16,6 +16,7 @@ type Config struct {
 	Server      ServerConfig   `mapstructure:",squash"`
 	Database    DatabaseConfig `mapstructure:",squash"`
 	Redis       RedisConfig    `mapstructure:",squash"`
+	MinIO       MinIOConfig    `mapstructure:",squash"`
 	Auth        AuthConfig     `mapstructure:",squash"`
 	Logger      LoggerConfig   `mapstructure:",squash"`
 	Services    ServicesConfig `mapstructure:",squash"`
@@ -51,6 +52,16 @@ type RedisConfig struct {
 	DB         int    `mapstructure:"REDIS_DB"`
 	MaxRetries int    `mapstructure:"REDIS_MAX_RETRIES"`
 	PoolSize   int    `mapstructure:"REDIS_POOL_SIZE"`
+}
+
+// MinIOConfig holds MinIO configuration
+type MinIOConfig struct {
+	Endpoint        string `mapstructure:"MINIO_ENDPOINT"`
+	AccessKeyID     string `mapstructure:"MINIO_ACCESS_KEY_ID"`
+	SecretAccessKey string `mapstructure:"MINIO_SECRET_ACCESS_KEY"`
+	UseSSL          bool   `mapstructure:"MINIO_USE_SSL"`
+	BucketName      string `mapstructure:"MINIO_BUCKET_NAME"`
+	Region          string `mapstructure:"MINIO_REGION"`
 }
 
 // AuthConfig holds authentication configuration
@@ -204,6 +215,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("REDIS_DB", 0)
 	v.SetDefault("REDIS_MAX_RETRIES", 3)
 	v.SetDefault("REDIS_POOL_SIZE", 10)
+
+	// MinIO
+	v.SetDefault("MINIO_ENDPOINT", "localhost:19000")
+	v.SetDefault("MINIO_USE_SSL", false)
+	v.SetDefault("MINIO_BUCKET_NAME", "documents")
+	v.SetDefault("MINIO_REGION", "us-east-1")
 
 	// Logger
 	v.SetDefault("LOG_LEVEL", "info")
